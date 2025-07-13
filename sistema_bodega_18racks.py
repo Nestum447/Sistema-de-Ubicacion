@@ -2,14 +2,14 @@ import streamlit as st
 import pandas as pd
 from io import BytesIO
 
-st.set_page_config(page_title="Sistema de Asignación de Bodega (18 Racks)", layout="wide")
-st.title("📦 Sistema Automático de Asignación de Productos en Bodega (18 Racks)")
+st.set_page_config(page_title="Sistema de Asignación de Bodega (Con Racks)", layout="wide")
+st.title("📦 Sistema Automático de Asignación de Productos en Bodega (Con Racks)")
 
 # --- 1. Subida de archivos ---
 st.sidebar.header("📂 Cargar archivos Excel")
 
-file_ubicaciones = st.sidebar.file_uploader("Cargar ubicaciones.xlsx (con columna 'Rack')", type=["xlsx"])
-file_productos = st.sidebar.file_uploader("Cargar productos.xlsx", type=["xlsx"])
+file_ubicaciones = st.sidebar.file_uploader("Cargar UBICACIONES.xlsx (con columna 'Rack')", type=["xlsx"])
+file_productos = st.sidebar.file_uploader("Cargar PRODUCTOS.xlsx", type=["xlsx"])
 
 if file_ubicaciones and file_productos:
     ubicaciones = pd.read_excel(file_ubicaciones)

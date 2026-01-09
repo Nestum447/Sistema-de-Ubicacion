@@ -43,7 +43,7 @@ ubicaciones = pd.read_excel(file_ubic)
 productos = pd.read_excel(file_prod)
 
 # =====================================================
-# NORMALIZAR COLUMNAS (ROBUSTO)
+# NORMALIZAR COLUMNAS (ADAPTADO A TU EXCEL)
 # =====================================================
 productos.columns = productos.columns.str.strip().str.lower()
 ubicaciones.columns = ubicaciones.columns.str.strip().str.lower()
@@ -54,10 +54,12 @@ map_productos = {
     "descripcion": "Producto",
     "sku": "Producto",
     "nombre": "Producto",
+
     "cantidad": "Cantidad",
     "cant": "Cantidad",
     "qty": "Cantidad",
-    "unidades": "Cantidad"
+    "unidades": "Cantidad",
+    "existencia": "Cantidad"   # 👈 CLAVE PARA TU CASO
 }
 
 map_ubicaciones = {
@@ -77,7 +79,7 @@ ubicaciones = ubicaciones.rename(
 )
 
 # =====================================================
-# VALIDACIONES FLEXIBLES
+# VALIDACIONES
 # =====================================================
 if "Producto" not in productos.columns or "Cantidad" not in productos.columns:
     st.error(

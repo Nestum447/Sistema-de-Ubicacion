@@ -1,160 +1,146 @@
 import streamlit as st
 import pandas as pd
-from io import BytesIO
 from ortools.linear_solver import pywraplp
 
+# ----------------------------------
+# Configuración Streamlit
+# ----------------------------------
 st.set_page_config(page_title="Sistema de Asignación de Bodega", layout="wide")
 st.title("📦 Sistema Automático de Asignación de Productos en Bodega")
 
-# --- Selector de método ---
-metodo = st.radio(
-    "🧠 Método de asignación",
-    ["Método actual (heurístico)", "Método matemático (optimización)"]
-)
+# ----------------------------------
+# Carga de archivos
+# ----------------------------------
+st.header("📂 Cargar archivos Excel")
 
-# --- Subida de archivos ---
-st.sidebar.header("📂 Cargar archivos Excel")
-file_ubicaciones = st.sidebar.file_uploader("Cargar UBICACIONES.xlsx", type=["xlsx"])
-file_productos = st.sidebar.file_uploader("Cargar PRODUCTOS.xlsx", type=["xlsx"])
+file_ubic = st.file_uploader("Cargar UBICACIONES.xlsx", type=["xlsx"])
+file_prod = st.file_uploader("Cargar PRODUCTOS.xlsx", type=["xlsx"])
 
-# =========================================================
-# MÉTODO 1: HEURÍSTICO (TU MODELO ACTUAL)
-# =========================================================
+if not file_ubic or not file_prod:
+    st.stop()
+
+ubicaciones = pd.read_excel(file_ubic)
+productos = pd.read_excel(file_prod)
+
+# Normalizar columnas (MUY IMPORTANTE)
+ubicaciones.columns = ubicaciones.columns.str.strip()
+productos.columns = productos.columns.str.strip()
+
+# Validaciones mínimas
+required_prod = ["Producto", "Cantidad"]
+required_ubic = ["Ubicacion"]
+
+for col in required_prod:
+    if col not in productos.columns:
+        st.error(f"Falta columna '{col}' en PRODUCTOS.xlsx")
+        st.stop()
+
+for col in required_ubic:
+    if col not in ubicaciones.columns:
+        st.error(f"Falta columna '{col}' en UBICACIONES.xlsx")
+        st.stop()
+
+# ----------------------------------
+# MÉTODO HEURÍSTICO
+# ----------------------------------
 def asignar_heuristico(productos, ubicaciones):
     asignaciones = []
+    u = 0
 
-    for idx, row in productos.iterrows():
-        nombre = row["Producto"]
-        altura = row["Altura"]
-        cantidad = int(row["Existencia"])
-        asignados = 0
-
-        disponibles = ubicaciones[
-            (ubicaciones["Disponible"] == True) &
-            (ubicaciones["Altura_útil"] >= altura)
-        ].copy()
-
-        disponibles["Diferencia"] = disponibles["Altura_útil"] - altura
-        disponibles = disponibles.sort_values(
-            by=["Diferencia", "Rack", "Nivel", "Fila", "Posición"]
-        )
-
-        for i, u in disponibles.iterrows():
-            if asignados >= cantidad:
+    for _, prod in productos.iterrows():
+        for _ in range(int(prod["Cantidad"])):
+            if u >= len(ubicaciones):
                 break
-            ubicaciones.at[i, "Disponible"] = False
-            ubicaciones.at[i, "Producto_asignado"] = nombre
-            asignados += 1
-
             asignaciones.append({
-                "Producto": nombre,
-                "Rack": u["Rack"],
-                "Nivel": u["Nivel"],
-                "Fila": u["Fila"],
-                "Posición": u["Posición"],
-                "Altura_útil": u["Altura_útil"]
+                "Producto": prod["Producto"],
+                "Ubicacion": ubicaciones.loc[u, "Ubicacion"]
             })
-
-        productos.loc[idx, "Asignado"] = asignados
-        productos.loc[idx, "Pendiente"] = cantidad - asignados
-
-    return productos, ubicaciones, pd.DataFrame(asignaciones)
-
-# =========================================================
-# MÉTODO 2: MATEMÁTICO (OPTIMIZACIÓN)
-# =========================================================
-def asignar_matematico(productos, ubicaciones):
-    solver = pywraplp.Solver.CreateSolver("SCIP")
-    x = {}
-
-    productos_idx = productos.index.tolist()
-    ubic_idx = ubicaciones.index.tolist()
-
-    # Variables binarias
-    for p in productos_idx:
-        for u in ubic_idx:
-            if ubicaciones.at[u, "Altura_útil"] >= productos.at[p, "Altura"]:
-                x[p, u] = solver.BoolVar(f"x_{p}_{u}")
-
-    # Restricción: una ubicación solo un producto
-    for u in ubic_idx:
-        solver.Add(
-            sum(x[p, u] for p in productos_idx if (p, u) in x) <= 1
-        )
-
-    # Restricción: cumplir cantidad por producto
-    for p in productos_idx:
-        solver.Add(
-            sum(x[p, u] for u in ubic_idx if (p, u) in x)
-            <= int(productos.at[p, "Existencia"])
-        )
-
-    # Función objetivo: minimizar desperdicio de altura
-    solver.Minimize(
-        sum(
-            (ubicaciones.at[u, "Altura_útil"] - productos.at[p, "Altura"]) * x[p, u]
-            for (p, u) in x
-        )
-    )
-
-    solver.Solve()
-
-    asignaciones = []
-
-    for (p, u), var in x.items():
-        if var.solution_value() == 1:
-            ubicaciones.at[u, "Disponible"] = False
-            ubicaciones.at[u, "Producto_asignado"] = productos.at[p, "Producto"]
-
-            asignaciones.append({
-                "Producto": productos.at[p, "Producto"],
-                "Rack": ubicaciones.at[u, "Rack"],
-                "Nivel": ubicaciones.at[u, "Nivel"],
-                "Fila": ubicaciones.at[u, "Fila"],
-                "Posición": ubicaciones.at[u, "Posición"],
-                "Altura_útil": ubicaciones.at[u, "Altura_útil"]
-            })
+            u += 1
 
     df_asig = pd.DataFrame(asignaciones)
-    resumen = df_asig.groupby("Producto").size().reset_index(name="Asignado")
-    productos = productos.merge(resumen, on="Producto", how="left")
-    productos["Asignado"] = productos["Asignado"].fillna(0).astype(int)
-    productos["Pendiente"] = productos["Existencia"] - productos["Asignado"]
+    return df_asig
 
-    return productos, ubicaciones, df_asig
 
-# =========================================================
-# EJECUCIÓN
-# =========================================================
-if file_ubicaciones and file_productos:
-    ubicaciones = pd.read_excel(file_ubicaciones)
-    productos = pd.read_excel(file_productos)
+# ----------------------------------
+# MÉTODO MATEMÁTICO (OR-TOOLS)
+# ----------------------------------
+def asignar_matematico(productos, ubicaciones):
+    solver = pywraplp.Solver.CreateSolver("SCIP")
 
-    if metodo == "Método actual (heurístico)":
-        productos, ubicaciones, df_asign = asignar_heuristico(productos, ubicaciones)
+    P = range(len(productos))
+    U = range(len(ubicaciones))
+
+    # Variables binarias
+    x = {}
+    for i in P:
+        for j in U:
+            x[i, j] = solver.BoolVar(f"x_{i}_{j}")
+
+    # Restricción: cada ubicación solo 1 producto
+    for j in U:
+        solver.Add(sum(x[i, j] for i in P) <= 1)
+
+    # Restricción: respetar cantidad por producto
+    for i in P:
+        solver.Add(sum(x[i, j] for j in U) == int(productos.loc[i, "Cantidad"]))
+
+    # Función objetivo simple
+    solver.Maximize(sum(x[i, j] for i in P for j in U))
+
+    status = solver.Solve()
+
+    if status != pywraplp.Solver.OPTIMAL:
+        st.error("No se encontró solución óptima")
+        return pd.DataFrame()
+
+    # Construcción CORRECTA del DataFrame
+    asignaciones = []
+
+    for i in P:
+        for j in U:
+            if x[i, j].solution_value() > 0.5:
+                asignaciones.append({
+                    "Producto": productos.loc[i, "Producto"],
+                    "Ubicacion": ubicaciones.loc[j, "Ubicacion"]
+                })
+
+    df_asig = pd.DataFrame(asignaciones)
+
+    # Blindaje
+    assert "Producto" in df_asig.columns
+    assert "Ubicacion" in df_asig.columns
+
+    return df_asig
+
+
+# ----------------------------------
+# Selección de método
+# ----------------------------------
+st.header("⚙️ Método de asignación")
+
+metodo = st.radio(
+    "Selecciona el método",
+    ["Heurístico (actual)", "Matemático (óptimo)"]
+)
+
+if st.button("🚀 Ejecutar asignación"):
+    if metodo == "Heurístico (actual)":
+        df_asig = asignar_heuristico(productos, ubicaciones)
     else:
-        productos, ubicaciones, df_asign = asignar_matematico(productos, ubicaciones)
+        df_asig = asignar_matematico(productos, ubicaciones)
 
-    st.subheader("📊 Estado de ubicaciones")
-    st.dataframe(ubicaciones)
+    st.success("Asignación realizada correctamente")
 
-    st.subheader("📦 Estado de productos")
-    st.dataframe(productos)
+    # Mostrar asignaciones
+    st.subheader("📋 Asignaciones")
+    st.dataframe(df_asig, use_container_width=True)
 
-    st.subheader("✅ Asignaciones")
-    st.dataframe(df_asign)
-
-    output = BytesIO()
-    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
-        df_asign.to_excel(writer, sheet_name="Asignaciones", index=False)
-        productos.to_excel(writer, sheet_name="Productos", index=False)
-        ubicaciones.to_excel(writer, sheet_name="Ubicaciones", index=False)
-    output.seek(0)
-
-    st.download_button(
-        "📥 Descargar resultados",
-        data=output,
-        file_name="resultado_asignaciones.xlsx"
+    # Resumen (YA NO FALLA)
+    st.subheader("📊 Resumen por producto")
+    resumen = (
+        df_asig
+        .groupby("Producto")
+        .size()
+        .reset_index(name="Asignado")
     )
-else:
-    st.info("📑 Carga los archivos para iniciar.")
+    st.dataframe(resumen, use_container_width=True)

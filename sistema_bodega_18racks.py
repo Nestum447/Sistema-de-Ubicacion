@@ -43,44 +43,40 @@ ubicaciones = pd.read_excel(file_ubic)
 productos = pd.read_excel(file_prod)
 
 # =====================================================
-# NORMALIZAR COLUMNAS (ADAPTADO A TU EXCEL)
+# NORMALIZAR COLUMNAS (acentos + minúsculas)
 # =====================================================
-productos.columns = productos.columns.str.strip().str.lower()
-ubicaciones.columns = ubicaciones.columns.str.strip().str.lower()
+def normalizar(col):
+    return (
+        col.strip()
+        .lower()
+        .replace("á", "a")
+        .replace("é", "e")
+        .replace("í", "i")
+        .replace("ó", "o")
+        .replace("ú", "u")
+    )
 
+productos.columns = [normalizar(c) for c in productos.columns]
+ubicaciones.columns = [normalizar(c) for c in ubicaciones.columns]
+
+# =====================================================
+# MAPEO PRODUCTOS
+# =====================================================
 map_productos = {
     "producto": "Producto",
-    "productos": "Producto",
     "descripcion": "Producto",
     "sku": "Producto",
     "nombre": "Producto",
 
     "cantidad": "Cantidad",
-    "cant": "Cantidad",
-    "qty": "Cantidad",
-    "unidades": "Cantidad",
-    "existencia": "Cantidad"   # 👈 CLAVE PARA TU CASO
-}
-
-map_ubicaciones = {
-    "ubicacion": "Ubicacion",
-    "ubicaciones": "Ubicacion",
-    "posicion": "Ubicacion",
-    "location": "Ubicacion",
-    "slot": "Ubicacion"
+    "existencia": "Cantidad",
+    "unidades": "Cantidad"
 }
 
 productos = productos.rename(
     columns={c: map_productos[c] for c in productos.columns if c in map_productos}
 )
 
-ubicaciones = ubicaciones.rename(
-    columns={c: map_ubicaciones[c] for c in ubicaciones.columns if c in map_ubicaciones}
-)
-
-# =====================================================
-# VALIDACIONES
-# =====================================================
 if "Producto" not in productos.columns or "Cantidad" not in productos.columns:
     st.error(
         "❌ No se reconocen columnas en PRODUCTOS.xlsx\n"
@@ -88,12 +84,30 @@ if "Producto" not in productos.columns or "Cantidad" not in productos.columns:
     )
     st.stop()
 
-if "Ubicacion" not in ubicaciones.columns:
+# =====================================================
+# MAPEO UBICACIONES (TU CASO REAL)
+# =====================================================
+# Validar columnas base
+requeridas = {"rack", "nivel", "fila", "posicion", "disponible"}
+
+if not requeridas.issubset(set(ubicaciones.columns)):
     st.error(
-        "❌ No se reconoce columna en UBICACIONES.xlsx\n"
+        "❌ UBICACIONES.xlsx debe contener columnas:\n"
+        "rack, nivel, fila, posición, disponible\n\n"
         f"Columnas encontradas: {list(ubicaciones.columns)}"
     )
     st.stop()
+
+# Usar solo ubicaciones disponibles
+ubicaciones = ubicaciones[ubicaciones["disponible"] == 1].copy()
+
+# Crear columna Ubicacion automáticamente
+ubicaciones["Ubicacion"] = (
+    "R" + ubicaciones["rack"].astype(str) +
+    "-N" + ubicaciones["nivel"].astype(str) +
+    "-F" + ubicaciones["fila"].astype(str) +
+    "-P" + ubicaciones["posicion"].astype(str)
+)
 
 # =====================================================
 # MÉTODO HEURÍSTICO
@@ -108,7 +122,7 @@ def metodo_heuristico(productos, ubicaciones):
                 break
             asignaciones.append({
                 "Producto": prod["Producto"],
-                "Ubicacion": ubicaciones.loc[u, "Ubicacion"]
+                "Ubicacion": ubicaciones.iloc[u]["Ubicacion"]
             })
             u += 1
 
@@ -148,7 +162,7 @@ def metodo_matematico(productos, ubicaciones):
             if x[i, j].solution_value() > 0.5:
                 asignaciones.append({
                     "Producto": productos.loc[i, "Producto"],
-                    "Ubicacion": ubicaciones.loc[j, "Ubicacion"]
+                    "Ubicacion": ubicaciones.iloc[j]["Ubicacion"]
                 })
 
     return pd.DataFrame(asignaciones)

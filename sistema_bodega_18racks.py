@@ -13,21 +13,16 @@ st.set_page_config(
 st.title("📦 Sistema Automático de Asignación de Productos en Bodega")
 
 # =====================================================
-# SELECCIÓN DE MÉTODO (PRIMERO)
+# SELECCIÓN DE MÉTODO
 # =====================================================
 st.header("⚙️ Selección de método")
 
 metodo = st.selectbox(
     "¿Qué método deseas utilizar?",
     (
-        "Heurístico (rápido, actual)",
-        "Matemático (óptimo, OR-Tools)"
+        "Heurístico (rápido)",
+        "Matemático (óptimo - OR-Tools)"
     )
-)
-
-st.info(
-    "🔹 Heurístico: asignación secuencial simple\n"
-    "🔹 Matemático: optimización exacta usando programación lineal"
 )
 
 st.divider()
@@ -41,25 +36,61 @@ file_ubic = st.file_uploader("Cargar UBICACIONES.xlsx", type=["xlsx"])
 file_prod = st.file_uploader("Cargar PRODUCTOS.xlsx", type=["xlsx"])
 
 if not file_ubic or not file_prod:
-    st.warning("Cargue ambos archivos para continuar")
+    st.info("Cargue ambos archivos para continuar")
     st.stop()
 
 ubicaciones = pd.read_excel(file_ubic)
 productos = pd.read_excel(file_prod)
 
-# Normalizar columnas
-ubicaciones.columns = ubicaciones.columns.str.strip()
-productos.columns = productos.columns.str.strip()
+# =====================================================
+# NORMALIZAR COLUMNAS (ROBUSTO)
+# =====================================================
+productos.columns = productos.columns.str.strip().str.lower()
+ubicaciones.columns = ubicaciones.columns.str.strip().str.lower()
+
+map_productos = {
+    "producto": "Producto",
+    "productos": "Producto",
+    "descripcion": "Producto",
+    "sku": "Producto",
+    "nombre": "Producto",
+    "cantidad": "Cantidad",
+    "cant": "Cantidad",
+    "qty": "Cantidad",
+    "unidades": "Cantidad"
+}
+
+map_ubicaciones = {
+    "ubicacion": "Ubicacion",
+    "ubicaciones": "Ubicacion",
+    "posicion": "Ubicacion",
+    "location": "Ubicacion",
+    "slot": "Ubicacion"
+}
+
+productos = productos.rename(
+    columns={c: map_productos[c] for c in productos.columns if c in map_productos}
+)
+
+ubicaciones = ubicaciones.rename(
+    columns={c: map_ubicaciones[c] for c in ubicaciones.columns if c in map_ubicaciones}
+)
 
 # =====================================================
-# VALIDACIONES
+# VALIDACIONES FLEXIBLES
 # =====================================================
 if "Producto" not in productos.columns or "Cantidad" not in productos.columns:
-    st.error("PRODUCTOS.xlsx debe contener columnas: Producto, Cantidad")
+    st.error(
+        "❌ No se reconocen columnas en PRODUCTOS.xlsx\n"
+        f"Columnas encontradas: {list(productos.columns)}"
+    )
     st.stop()
 
 if "Ubicacion" not in ubicaciones.columns:
-    st.error("UBICACIONES.xlsx debe contener la columna: Ubicacion")
+    st.error(
+        "❌ No se reconoce columna en UBICACIONES.xlsx\n"
+        f"Columnas encontradas: {list(ubicaciones.columns)}"
+    )
     st.stop()
 
 # =====================================================
@@ -99,9 +130,7 @@ def metodo_matematico(productos, ubicaciones):
         solver.Add(sum(x[i, j] for i in P) <= 1)
 
     for i in P:
-        solver.Add(
-            sum(x[i, j] for j in U) == int(productos.loc[i, "Cantidad"])
-        )
+        solver.Add(sum(x[i, j] for j in U) == int(productos.loc[i, "Cantidad"]))
 
     solver.Maximize(sum(x[i, j] for i in P for j in U))
 
@@ -125,8 +154,6 @@ def metodo_matematico(productos, ubicaciones):
 # =====================================================
 # EJECUCIÓN
 # =====================================================
-st.divider()
-
 if st.button("🚀 Ejecutar asignación", use_container_width=True):
 
     if metodo.startswith("Heurístico"):
@@ -135,12 +162,11 @@ if st.button("🚀 Ejecutar asignación", use_container_width=True):
         df_asign = metodo_matematico(productos, ubicaciones)
 
     if df_asign.empty:
-        st.error("No se pudo generar la asignación")
+        st.error("No se generaron asignaciones")
         st.stop()
 
     st.success("✅ Asignación realizada correctamente")
 
-    # Resultados
     st.subheader("📋 Asignaciones")
     st.dataframe(df_asign, use_container_width=True)
 
